@@ -105,7 +105,7 @@ def sitemap():
     Generate and return a sitemap.xml for search engine indexing.
     Includes the homepage and all individual project detail pages.
     """
-    base = "https://mydevpath-github.vercel.app"
+    base = request.host_url.rstrip("/")
     projects = load_all_projects()
 
     urls = [f"<url><loc>{base}/</loc></url>"]
