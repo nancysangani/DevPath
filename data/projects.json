@@ -406,6 +406,37 @@
       "W3Schools JavaScript: https://www.w3schools.com/js"
     ],
     "starter_code": "starter_code/quiz_app.html"
+  },
+  {
+    "id": 11,
+    "title": "File Organiser Script",
+    "skills": ["Python"],
+    "level": "Beginner",
+    "interest": "Automation",
+    "time": "Low",
+    "description": "A command-line script that sorts files in a folder into subfolders by file extension (Images, Documents, Videos, etc.). Great for learning the os and shutil modules and writing your first automation tool.",
+    "features": [
+      "Scan a target folder for files",
+      "Group files by extension into category subfolders",
+      "Skip already-sorted files and folders",
+      "Print a summary of files moved per category"
+    ],
+    "tech_stack": ["Python", "os module", "shutil module", "pathlib"],
+    "roadmap": [
+      "Step 1: Set up the Python file and import os, shutil, pathlib",
+      "Step 2: Define a mapping of extensions to category folders",
+      "Step 3: List all files in the target directory",
+      "Step 4: Determine each file's category from its extension",
+      "Step 5: Create category subfolders if they do not exist",
+      "Step 6: Move each file into its category folder using shutil.move",
+      "Step 7: Print a summary count of files moved per category"
+    ],
+    "resources": [
+      "Python os module: https://docs.python.org/3/library/os.html",
+      "Python shutil module: https://docs.python.org/3/library/shutil.html",
+      "Python pathlib guide: https://docs.python.org/3/library/pathlib.html"
+    ],
+    "starter_code": "starter_code/file_organiser.py"
   }
 ]
 
