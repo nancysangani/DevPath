@@ -182,6 +182,39 @@ if (isIndexPage) {
 
   // Tracks currently selected skills to prevent duplicates
   var selectedSkills = [];
+  // Clear Filters Button Functionality
+var clearFiltersBtn = document.getElementById("clear-filters-btn");
+if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener("click", function() {
+        var recommendForm = document.getElementById("recommend-form");
+        if (recommendForm) {
+            // 1. Reset standard form dropdowns and fields
+            recommendForm.reset();
+            
+            // 2. Clear out the internal JavaScript array tracker completely
+            selectedSkills = [];
+            
+            // 3. Clear the hidden inputs and visual chips using the file's own variables
+            if (skillsHidden) skillsHidden.value = "";
+            if (chipsSelectedEl) chipsSelectedEl.innerHTML = "";
+            if (skillsTextInput) {
+                skillsTextInput.value = "";
+                skillsTextInput.focus(); // Place cursor back on input
+            }
+            
+            // 4. Hide autocomplete suggestions if any are open
+            var suggestionsBox = document.getElementById("skills-suggestions");
+            if (suggestionsBox) suggestionsBox.innerHTML = "";
+
+            // 5. Reset quick-pick chip visual active states if they have any
+            if (quickPickChips) {
+                quickPickChips.forEach(function(chip) {
+                    chip.classList.remove("active", "selected");
+                });
+            }
+        }
+    });
+}
 
 
   // ----------------------------------------------------------
@@ -610,40 +643,7 @@ if (isIndexPage) {
       level: document.getElementById("level").value,
       interest: document.getElementById("interest").value,
       time: document.getElementById("time").value
-    };
-
-    //post the data to backend api as JSON, then handle the response
-    fetch("/api/recommend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload) //convert object to json string
-    })
-      .then(function (res) { return res.json(); }) //parse the response as JSON
-      .then(function (data) {
-        setLoadingState(false);
-
-          var generalErr = document.getElementById("form-error-general");
-
-          if (generalErr) {
-            generalErr.textContent =
-              "Something went wrong. Please try again.";
-          }
-        });
-    });
-        if (data.error) {
-          var generalErr = document.getElementById("form-error-general");
-          if (generalErr) generalErr.textContent = data.error;
-          return;
-        }
-        renderResults(data.projects || [], data.message);
-      })
-      .catch(function (err) {
-        // this runs if the network request itself fails 
-        setLoadingState(false);
-        var generalErr = document.getElementById("form-error-general");
-        if (generalErr) generalErr.textContent = "Something went wrong. Please try again.";
-        console.error("API request failed:", err);
-      });
+    };  
   });
 
   // Manages the loading state of the form and results section(whats visible or not)
@@ -653,8 +653,6 @@ if (isIndexPage) {
     submitBtn.setAttribute("aria-busy", isLoading);
     btnLabel.style.display = isLoading ? "none" : "inline";
     btnLoading.style.display = isLoading ? "inline-flex" : "none";
-    btnLabel.style.display = isLoading ? "none" : "inline";
-    btnLoading.style.display = isLoading ? "inline" : "none";
 
     if (isLoading) {
       // Show the results section with only the loading indicator visible
@@ -690,9 +688,19 @@ if (isIndexPage) {
       resultsEmptyEl.style.display = "block";
       if (message && emptyMessageEl) emptyMessageEl.textContent = message;
     if (!projects || projects.length === 0) { //if no projects returned from api, show the "no results" message and hide the grid
-      resultsGrid.style.display      = "none";
-      resultsEmptyEl.style.display   = "block";
-      if (message && emptyMessageEl) emptyMessageEl.textContent = message; //if api sent back a message (e.g. "no projects found matching your criteria"), show that 
+      resultsGrid.style.display    = "none";
+      resultsEmptyEl.style.display = "block";
+
+      // Show a friendly custom message when the user selected an interest
+      var selectedInterest = document.getElementById("interest")?.value;
+      if (selectedInterest) {
+        emptyMessageEl.textContent = "No projects are currently available for this interest. Please check back later or try a different area.";
+      } else if (message) {
+        emptyMessageEl.textContent = message;
+      } else {
+        emptyMessageEl.textContent = "Try adjusting your skills or choosing a different interest area.";
+      }
+
       resultsSection.scrollIntoView({ behavior: "smooth" });
       return;
     }
@@ -729,8 +737,8 @@ if (isIndexPage) {
     var tagsRow = document.createElement("div");
     tagsRow.className = "project-card-tags";
 
-    // Show the first two skills as tags
-    (project.skills || []).slice(0, 2).forEach(function (skill) {
+    // Show all project skills as tags so users can see the full match
+    (project.skills || []).forEach(function (skill) {
       tagsRow.appendChild(createTag(skill, "skill"));
     });
 
