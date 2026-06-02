@@ -965,6 +965,30 @@ if (isIndexPage) {
       document.body.style.overflow = "";
     }
 
+    // Render code string as a list of DOM rows where each row contains a
+    // line-number gutter cell and a code cell. Returning DOM nodes instead
+    // of an HTML string avoids innerHTML XSS risks from the code content.
+    function renderCodeWithLineNumbers(code) {
+      var lines = (code || "").split("\n");
+      return lines.map(function (line, index) {
+        var row = document.createElement("div");
+        row.className = "code-line";
+
+        var lineNum = document.createElement("span");
+        lineNum.className = "code-line-number";
+        lineNum.setAttribute("aria-hidden", "true");
+        lineNum.textContent = index + 1;
+
+        var lineCode = document.createElement("span");
+        lineCode.className = "code-line-content";
+        lineCode.textContent = line;
+
+        row.appendChild(lineNum);
+        row.appendChild(lineCode);
+        return row;
+      });
+    }
+
     //fetches the starter code from the server via an API call
     //inserts the code into the panel and handles loading/error states
     function fetchStarterCode() {
