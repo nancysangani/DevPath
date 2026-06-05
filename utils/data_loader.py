@@ -4,6 +4,9 @@ import threading
 
 DATA_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "projects.json")
 
+_projects_cache = None
+_cache_lock = threading.Lock()
+
 def validate_projects(projects):
     """
     Validate project dataset integrity.
