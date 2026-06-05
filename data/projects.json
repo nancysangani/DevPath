@@ -283,7 +283,7 @@
     "starter_code": "starter_code/realtime_chat_app.js"
   },
   {
-    "id": 10,
+    "id": 99,
     "title": "Password Strength Checker",
     "skills": ["Python"],
     "level": "Beginner",
@@ -312,7 +312,7 @@
     "starter_code": "starter_code/password_checker.py"
   },
   {
-    "id": 9,
+    "id": 10,
     "title": "Feedback Survey Form",
     "skills": ["HTML"],
     "level": "Beginner",
@@ -338,7 +338,7 @@
     "starter_code": "starter_code/survey_form/index.html"
   },
   {
-    "id": 10,
+    "id": 98,
     "title": "API ETL Pipeline",
     "skills": ["Python", "pandas", "requests"],
     "level": "Intermediate",
