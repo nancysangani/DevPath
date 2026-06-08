@@ -19,7 +19,12 @@
   }
 
   function initTheme() {
-    var theme = html.getAttribute("data-theme") || "light";
+    var theme = "light";
+    try {
+      theme = localStorage.getItem("theme") || html.getAttribute("data-theme") || "light";
+    } catch (err) {
+      theme = html.getAttribute("data-theme") || "light";
+    }
     applyTheme(theme);
     requestAnimationFrame(function () {
       html.classList.add("theme-ready");
