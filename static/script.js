@@ -1,52 +1,286 @@
-// script.js — DevPath client-side logic
-//
-// Responsibilities:
-//   - Mobile navigation toggle
-//   - Skill chip manager (add/remove skills)
-//   - Form validation with per-field error messages
-//   - Recommendation API call and loading states
-//   - Result card rendering
-//   - Code viewer panel (detail page)
+// DevPath client-side behavior.
 
-// ============================================================
-// Detect which page we are on
-// ============================================================
-var isIndexPage = !!document.getElementById("recommend-form");
-var isDetailPage = typeof PROJECT_ID !== "undefined";
+(function () {
+  var html = document.documentElement;
 
+  function applyTheme(theme) {
+    var isDark = theme === "dark";
+    html.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("theme", theme);
+    } catch (err) {
+      // Storage can be unavailable in private browsing.
+    }
 
-// ============================================================
-// Mobile navigation toggle (runs on all pages)
-// ============================================================
+    document.querySelectorAll(".theme-toggle").forEach(function (button) {
+      button.setAttribute("aria-pressed", isDark ? "true" : "false");
+      button.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    });
+  }
+
+  function initTheme() {
+    var theme = "light";
+    try {
+      theme = localStorage.getItem("theme") || html.getAttribute("data-theme") || "light";
+    } catch (err) {
+      theme = html.getAttribute("data-theme") || "light";
+    }
+    applyTheme(theme);
+    requestAnimationFrame(function () {
+      html.classList.add("theme-ready");
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var toggle = event.target.closest(".theme-toggle");
+    if (!toggle) return;
+    event.preventDefault();
+    var current = html.getAttribute("data-theme") || "light";
+    applyTheme(current === "dark" ? "light" : "dark");
+  });
+
+  initTheme();
+})();
+
 (function initMobileNav() {
   var toggle = document.getElementById("nav-mobile-toggle");
   var menu = document.getElementById("nav-mobile-menu");
-
   if (!toggle || !menu) return;
 
-  toggle.addEventListener("click", function () {
-    var isOpen = menu.classList.toggle("open");
+  function setOpen(isOpen) {
+    menu.classList.toggle("open", isOpen);
     toggle.classList.toggle("open", isOpen);
-    toggle.setAttribute("aria-expanded", isOpen);
+    toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+
+  toggle.addEventListener("click", function () {
+    setOpen(!menu.classList.contains("open"));
   });
 
-  // Close menu when any mobile link is clicked
   menu.querySelectorAll(".nav-mobile-link").forEach(function (link) {
     link.addEventListener("click", function () {
-      menu.classList.remove("open");
-      toggle.classList.remove("open");
+      setOpen(false);
     });
+  });
+
+  window.addEventListener("resize", function () {
+    if (window.innerWidth >= 640) setOpen(false);
   });
 })();
 
+var STORAGE_KEY = "devpathUserProgress";
+var progress = {
+  searches: 0,
+  projectViews: 0,
+  codeOpens: 0,
+  completions: 0,
+  points: 0,
+  viewedProjects: [],
+  completedProjects: [],
+  achievements: [],
+  badges: {
+    first_search: false,
+    project_explorer: false,
+    code_starter: false,
+    completionist: false,
+    roadmap_runner: false
+  },
+  bestScore: 0
+};
 
-// ============================================================
-// INDEX PAGE
-// ============================================================
-if (isIndexPage) {
+function loadProgressState() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object") return;
+    progress = Object.assign(progress, saved);
+    progress.viewedProjects = Array.isArray(saved.viewedProjects) ? saved.viewedProjects : [];
+    progress.completedProjects = Array.isArray(saved.completedProjects) ? saved.completedProjects : [];
+    progress.achievements = Array.isArray(saved.achievements) ? saved.achievements : [];
+    progress.badges = Object.assign(progress.badges, saved.badges || {});
+  } catch (err) {
+    console.warn("Unable to load progress state", err);
+  }
+}
 
-  // DOM references
+function saveProgressState() {
+  try {
+    progress.bestScore = Math.max(progress.bestScore || 0, progress.points || 0);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+  } catch (err) {
+    console.warn("Unable to save progress state", err);
+  }
+}
+
+function computeProgressPoints() {
+  progress.points = progress.searches * 5 + progress.projectViews * 10 +
+    progress.codeOpens * 15 + progress.completions * 30;
+}
+
+function showAchievementToast(title, detail) {
+  var toast = document.getElementById("achievement-toast");
+  if (!toast) return;
+  toast.textContent = "";
+  var strong = document.createElement("strong");
+  strong.textContent = title;
+  var span = document.createElement("span");
+  span.textContent = detail;
+  toast.appendChild(strong);
+  toast.appendChild(span);
+  toast.classList.add("show");
+  window.clearTimeout(showAchievementToast.timeout);
+  showAchievementToast.timeout = window.setTimeout(function () {
+    toast.classList.remove("show");
+  }, 3200);
+}
+
+function addAchievement(title, detail) {
+  if (progress.achievements.some(function (item) { return item.title === title; })) return;
+  progress.achievements.unshift({
+    title: title,
+    description: detail,
+    date: new Date().toLocaleDateString()
+  });
+  progress.achievements = progress.achievements.slice(0, 5);
+}
+
+function unlockBadge(id, title, detail) {
+  if (progress.badges[id]) return;
+  progress.badges[id] = true;
+  addAchievement(title, detail);
+  showAchievementToast("Badge unlocked", title + " - " + detail);
+}
+
+function tryUnlockBadges() {
+  if (progress.searches >= 1) unlockBadge("first_search", "First Search", "You used DevPath to find your first project.");
+  if (progress.projectViews >= 1) unlockBadge("project_explorer", "Project Explorer", "You viewed a project detail.");
+  if (progress.codeOpens >= 1) unlockBadge("code_starter", "Code Starter", "You opened starter code.");
+  if (progress.completions >= 1) unlockBadge("completionist", "Completionist", "You marked a project complete.");
+  if (progress.searches >= 5) unlockBadge("roadmap_runner", "Roadmap Runner", "You searched five times.");
+}
+
+function projectIsCompleted(projectId) {
+  return progress.completedProjects.some(function (item) {
+    return (item && typeof item === "object" ? item.id : item) === projectId;
+  });
+}
+
+function updateProfileWidgets() {
+  var pointsEl = document.getElementById("progress-points");
+  var statsEl = document.getElementById("progress-stats");
+  var meterFill = document.getElementById("progress-meter-fill");
+  var badgesEl = document.getElementById("progress-badges");
+  var achievementList = document.getElementById("achievement-list");
+  var leaderboardList = document.getElementById("leaderboard-list");
+  var historyList = document.getElementById("completed-history-list");
+  var completionBtn = document.getElementById("btn-mark-complete");
+
+  if (pointsEl) pointsEl.textContent = progress.points;
+  if (statsEl) {
+    statsEl.innerHTML =
+      "<li><strong>Searches</strong><span>" + progress.searches + "</span></li>" +
+      "<li><strong>Projects Viewed</strong><span>" + progress.projectViews + "</span></li>" +
+      "<li><strong>Code Opens</strong><span>" + progress.codeOpens + "</span></li>" +
+      "<li><strong>Projects Completed</strong><span>" + progress.completions + "</span></li>";
+  }
+  if (meterFill) {
+    var percentage = Math.min(100, Math.round((progress.points / 250) * 100));
+    meterFill.style.width = percentage + "%";
+    meterFill.setAttribute("aria-valuenow", String(percentage));
+    meterFill.textContent = percentage + "%";
+  }
+  if (badgesEl) {
+    var badges = [
+      ["first_search", "First Search"],
+      ["project_explorer", "Project Explorer"],
+      ["code_starter", "Code Starter"],
+      ["completionist", "Completionist"],
+      ["roadmap_runner", "Roadmap Runner"]
+    ];
+    badgesEl.innerHTML = badges.map(function (badge) {
+      var unlocked = progress.badges[badge[0]];
+      return "<li class=\"progress-badge " + (unlocked ? "progress-badge--unlocked" : "progress-badge--locked") +
+        "\"><span class=\"badge-icon\">" + (unlocked ? "OK" : "*") + "</span><span>" + badge[1] + "</span></li>";
+    }).join("");
+  }
+  if (achievementList) {
+    achievementList.innerHTML = progress.achievements.length
+      ? progress.achievements.map(function (item) {
+        return "<li class=\"achievement-item\"><strong>" + item.title + "</strong><span>" +
+          item.description + "</span><small>" + item.date + "</small></li>";
+      }).join("")
+      : "<li class=\"achievement-empty\">No achievements yet. Use DevPath and unlock the first badge.</li>";
+  }
+  if (leaderboardList) {
+    var entries = [
+      { name: "Ava", points: 245 },
+      { name: "Kai", points: 192 },
+      { name: "Sam", points: 176 },
+      { name: "You", points: progress.points }
+    ].sort(function (a, b) { return b.points - a.points; });
+    leaderboardList.innerHTML = entries.map(function (entry, index) {
+      return "<li><span>" + (index + 1) + ". " + entry.name + "</span><strong>" + entry.points + " pts</strong></li>";
+    }).join("");
+  }
+  if (historyList) {
+    historyList.innerHTML = progress.completedProjects.length
+      ? progress.completedProjects.slice(0, 5).map(function (item) {
+        var title = item && typeof item === "object" ? item.title : "Project " + item;
+        return "<li><span>" + title + "</span><strong>Completed</strong></li>";
+      }).join("")
+      : "<li class=\"achievement-empty\">No completed projects yet. Mark one complete from a project page.</li>";
+  }
+  if (completionBtn && typeof PROJECT_ID !== "undefined") {
+    var completed = projectIsCompleted(PROJECT_ID);
+    completionBtn.textContent = completed ? "Project Completed" : "Mark Project Complete";
+    completionBtn.disabled = completed;
+  }
+}
+
+function recordSearch() {
+  progress.searches += 1;
+  computeProgressPoints();
+  tryUnlockBadges();
+  saveProgressState();
+  updateProfileWidgets();
+}
+
+function recordProjectView() {
+  if (typeof PROJECT_ID === "undefined") return;
+  if (progress.viewedProjects.indexOf(PROJECT_ID) === -1) {
+    progress.viewedProjects.push(PROJECT_ID);
+    progress.projectViews = progress.viewedProjects.length;
+    computeProgressPoints();
+    tryUnlockBadges();
+    saveProgressState();
+    updateProfileWidgets();
+  }
+}
+
+function recordCodeOpen() {
+  progress.codeOpens += 1;
+  computeProgressPoints();
+  tryUnlockBadges();
+  saveProgressState();
+  updateProfileWidgets();
+}
+
+function recordCompletion(projectId, projectTitle) {
+  if (!projectId || projectIsCompleted(projectId)) return;
+  progress.completedProjects.push({ id: projectId, title: projectTitle || "Project " + projectId });
+  progress.completions = progress.completedProjects.length;
+  computeProgressPoints();
+  tryUnlockBadges();
+  saveProgressState();
+  updateProfileWidgets();
+}
+
+loadProgressState();
+updateProfileWidgets();
+
+(function initIndexPage() {
   var form = document.getElementById("recommend-form");
+  if (!form) return;
+
   var submitBtn = document.getElementById("submit-btn");
   var btnLabel = document.getElementById("btn-label");
   var btnLoading = document.getElementById("btn-loading");
@@ -56,327 +290,268 @@ if (isIndexPage) {
   var resultsEmptyEl = document.getElementById("results-empty");
   var emptyMessageEl = document.getElementById("empty-message");
   var skillsHidden = document.getElementById("skills");
-  var skillsTextInput = document.getElementById("skills-input");
-  var chipsSelectedEl = document.getElementById("skill-chips-selected");
-  var quickPickChips = document.querySelectorAll(".skill-chip");
-
-  // Tracks currently selected skills to prevent duplicates
-  var selectedSkills = [];
-
-
-  // ----------------------------------------------------------
-  // Skill chip manager
-  // ----------------------------------------------------------
-
-  // Skills list for autocomplete (from skills.js)
-  var availableSkills = [];
-  if (typeof skills !== "undefined" && Array.isArray(skills) && skills.length > 0) {
-    availableSkills = skills.map(function (s) { return s.label; });
-  } else {
-    // Fallback if skills.js doesn't load
-    availableSkills = [
-      "Python", "JavaScript", "Java", "C++", "HTML", "CSS", "React", "Node.js",
-      "Django", "Flask", "SQL", "MongoDB", "AWS", "Docker", "Kubernetes", "Git",
-      "C#", "Ruby", "PHP", "Go", "Swift", "TypeScript", "Angular", "Vue.js",
-      "Spring", "Flutter", "TensorFlow", "PyTorch", "Data Science",
-      "Machine Learning", "Artificial Intelligence", "DevOps", "Cybersecurity",
-      "Blockchain", "UI/UX Design", "Game Development", "CI/CD", "REST API", "GraphQL"
-    ];
-  }
-
-  var suggestionsDiv = document.getElementById("skills-suggestions");
+  var skillsInput = document.getElementById("skills-input");
+  var selectedChips = document.getElementById("skill-chips-selected");
+  var suggestions = document.getElementById("skills-suggestions");
   var skillWrap = document.getElementById("skill-input-wrap");
-  var visibleSuggestions = [];
+  var quickPickChips = Array.prototype.slice.call(document.querySelectorAll(".skill-chip"));
+  var selectedSkills = [];
+  var availableSkills = (typeof skills !== "undefined" && Array.isArray(skills))
+    ? skills.map(function (item) { return item.label; }).filter(Boolean)
+    : quickPickChips.map(function (chip) { return chip.getAttribute("data-skill"); });
   var activeSuggestionIndex = -1;
+  var visibleSuggestions = [];
+  var SAVED_PROJECTS_KEY = "devpathSavedProjects";
 
-  availableSkills = availableSkills.filter(function (skill, index, list) {
-    return typeof skill === "string" && skill.trim() &&
-      list.findIndex(function (item) {
-        return item.toLowerCase() === skill.toLowerCase();
-      }) === index;
-  });
-
-  if (suggestionsDiv) {
-    suggestionsDiv.setAttribute("role", "listbox");
+  function normalize(value) {
+    return String(value || "").trim().toLowerCase();
   }
 
-  function normalizeSkill(skill) {
-    return skill.trim().toLowerCase();
-  }
-
-  function isSkillSelected(skill) {
-    var normalizedSkill = normalizeSkill(skill);
-    return selectedSkills.some(function (selectedSkill) {
-      return normalizeSkill(selectedSkill) === normalizedSkill;
-    });
-  }
-
-  function getCanonicalSkill(rawSkill) {
-    var normalizedSkill = normalizeSkill(rawSkill);
-    var matchedSkill = availableSkills.find(function (skill) {
-      return normalizeSkill(skill) === normalizedSkill;
-    });
-
-    return matchedSkill || rawSkill.trim();
-  }
-
-  function getFilteredSkills(query) {
-    var normalizedQuery = normalizeSkill(query);
-
-    return availableSkills.filter(function (skill) {
-      return normalizeSkill(skill).includes(normalizedQuery) && !isSkillSelected(skill);
-    }).slice(0, 8);
-  }
-
-  function syncSuggestionsA11yState() {
-    skillsTextInput.setAttribute("aria-expanded", visibleSuggestions.length > 0 ? "true" : "false");
-  }
-
-  function renderActiveSuggestion() {
-    if (!suggestionsDiv) return;
-
-    suggestionsDiv.querySelectorAll(".suggestion-item").forEach(function (item, index) {
-      var isActive = index === activeSuggestionIndex;
-      item.classList.toggle("suggestion-item--active", isActive);
-      item.setAttribute("aria-selected", isActive ? "true" : "false");
-    });
-  }
-
-  function hideSuggestions() {
-    visibleSuggestions = [];
-    activeSuggestionIndex = -1;
-
-    if (suggestionsDiv) {
-      suggestionsDiv.style.display = "none";
-      suggestionsDiv.innerHTML = "";
+  function getSavedProjects() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(SAVED_PROJECTS_KEY) || "[]");
+      return Array.isArray(saved) ? saved : [];
+    } catch (err) {
+      console.warn("Unable to load saved projects", err);
+      return [];
     }
-
-    syncSuggestionsA11yState();
   }
 
-  function selectSuggestion(skill) {
-    addSkill(skill);
-    skillsTextInput.value = "";
-    hideSuggestions();
-    skillsTextInput.focus();
+  function saveSavedProjects(projects) {
+    try {
+      localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(projects));
+    } catch (err) {
+      console.warn("Unable to save projects", err);
+    }
   }
 
-  function displaySuggestions(items) {
-    if (!suggestionsDiv) return;
+  function projectIsSaved(projectId) {
+    return getSavedProjects().some(function (project) {
+      return String(project.id) === String(projectId);
+    });
+  }
 
-    visibleSuggestions = items;
-    activeSuggestionIndex = -1;
+  function saveProject(project) {
+    var saved = getSavedProjects();
+    if (saved.some(function (item) { return String(item.id) === String(project.id); })) return;
 
-    if (items.length === 0) {
-      hideSuggestions();
+    saved.unshift({
+      id: project.id,
+      title: project.title,
+      level: project.level || "",
+      time: project.time || "",
+      skills: Array.isArray(project.skills) ? project.skills.slice(0, 4) : []
+    });
+    saveSavedProjects(saved);
+    renderSavedProjects();
+  }
+
+  function removeSavedProject(projectId) {
+    var saved = getSavedProjects().filter(function (project) {
+      return String(project.id) !== String(projectId);
+    });
+    saveSavedProjects(saved);
+    renderSavedProjects();
+    document.querySelectorAll("[data-save-project-id='" + projectId + "']").forEach(function (button) {
+      button.classList.remove("saved");
+      button.textContent = "Save Project";
+      button.setAttribute("aria-pressed", "false");
+    });
+  }
+
+  function toggleSavedProject(project, button) {
+    if (projectIsSaved(project.id)) {
+      removeSavedProject(project.id);
       return;
     }
 
-    suggestionsDiv.innerHTML = "";
-    items.forEach(function (skill, index) {
-      var item = document.createElement("div");
-      item.className = "suggestion-item";
-      item.textContent = skill;
-      item.setAttribute("role", "option");
-      item.setAttribute("id", "skills-suggestion-" + index);
-      item.setAttribute("aria-selected", "false");
+    saveProject(project);
+    button.classList.add("saved");
+    button.textContent = "Saved";
+    button.setAttribute("aria-pressed", "true");
+  }
 
-      // Prevent the input blur handler from closing the menu before click runs.
-      item.addEventListener("mousedown", function (evt) {
-        evt.preventDefault();
+  function renderSavedProjects() {
+    var list = document.getElementById("saved-projects-list");
+    var count = document.getElementById("saved-projects-count");
+    if (!list || !count) return;
+
+    var saved = getSavedProjects();
+    count.textContent = saved.length + " saved";
+    list.textContent = "";
+
+    if (!saved.length) {
+      var empty = document.createElement("p");
+      empty.className = "saved-projects-empty";
+      empty.textContent = "No saved projects yet.";
+      list.appendChild(empty);
+      return;
+    }
+
+    saved.forEach(function (project) {
+      var item = document.createElement("article");
+      item.className = "saved-project-item";
+
+      var title = document.createElement("a");
+      title.href = "/project/" + project.id;
+      title.textContent = project.title;
+
+      var meta = document.createElement("span");
+      meta.textContent = [project.level, project.time].filter(Boolean).join(" - ");
+
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "saved-project-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", function () {
+        removeSavedProject(project.id);
       });
 
-      item.addEventListener("mouseenter", function () {
-        activeSuggestionIndex = index;
-        renderActiveSuggestion();
-      });
-
-      item.addEventListener("click", function () {
-        selectSuggestion(skill);
-      });
-
-      suggestionsDiv.appendChild(item);
+      item.appendChild(title);
+      item.appendChild(meta);
+      item.appendChild(remove);
+      list.appendChild(item);
     });
+  }
 
-    suggestionsDiv.style.display = "block";
-    syncSuggestionsA11yState();
+  function syncSkillsHiddenInput() {
+    skillsHidden.value = JSON.stringify(selectedSkills);
+  }
+
+  function isSelected(skill) {
+    return selectedSkills.some(function (item) { return normalize(item) === normalize(skill); });
+  }
+
+  function canonicalSkill(rawSkill) {
+    var trimmed = String(rawSkill || "").trim();
+    var match = availableSkills.find(function (skill) { return normalize(skill) === normalize(trimmed); });
+    return match || trimmed;
   }
 
   function updateQuickPickState() {
     quickPickChips.forEach(function (chip) {
-      var isActive = isSkillSelected(chip.getAttribute("data-skill") || "");
-      chip.classList.toggle("active", isActive);
-      chip.setAttribute("aria-pressed", isActive ? "true" : "false");
+      var active = isSelected(chip.getAttribute("data-skill"));
+      chip.classList.toggle("active", active);
+      chip.classList.toggle("selected", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
     });
   }
 
-  // Add skill on Enter key in the text input
-  skillsTextInput.addEventListener("keydown", function (evt) {
-    if (evt.key === "ArrowDown" || evt.key === "ArrowUp") {
-      if (visibleSuggestions.length === 0) {
-        displaySuggestions(getFilteredSkills(skillsTextInput.value));
-      }
-
-      if (visibleSuggestions.length === 0) return;
-
-      evt.preventDefault();
-      if (evt.key === "ArrowDown") {
-        activeSuggestionIndex = (activeSuggestionIndex + 1) % visibleSuggestions.length;
-      } else {
-        activeSuggestionIndex = activeSuggestionIndex <= 0
-          ? visibleSuggestions.length - 1
-          : activeSuggestionIndex - 1;
-      }
-
-      renderActiveSuggestion();
-      return;
-    }
-
-    if (evt.key === "Escape") {
-      hideSuggestions();
-      return;
-    }
-
-    if (evt.key === "Enter") {
-      evt.preventDefault();
-
-      if (activeSuggestionIndex >= 0 && visibleSuggestions[activeSuggestionIndex]) {
-        selectSuggestion(visibleSuggestions[activeSuggestionIndex]);
-        return;
-      }
-
-      if (skillsTextInput.value.trim()) {
-        addSkill(skillsTextInput.value);
-        skillsTextInput.value = "";
-      }
-
-      hideSuggestions();
-    }
-  });
-
-  // Show suggestions on input
-  skillsTextInput.addEventListener("input", function (evt) {
-    var typedValue = evt.target.value.trim();
-
-    if (typedValue.length === 0) {
-      hideSuggestions();
-      return;
-    }
-
-    displaySuggestions(getFilteredSkills(typedValue));
-  });
-
-  skillsTextInput.addEventListener("focus", function () {
-    if (skillsTextInput.value.trim()) {
-      displaySuggestions(getFilteredSkills(skillsTextInput.value));
-    }
-  });
-
-  // Hide suggestions when input loses focus
-  skillsTextInput.addEventListener("blur", function () {
-    setTimeout(function () { hideSuggestions(); }, 150);
-  });
-
-  if (skillWrap) {
-    skillWrap.addEventListener("click", function () {
-      skillsTextInput.focus();
+  function renderSelectedChips() {
+    selectedChips.textContent = "";
+    selectedSkills.forEach(function (skill) {
+      var chip = document.createElement("span");
+      chip.className = "skill-chip-selected";
+      chip.appendChild(document.createTextNode(skill));
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "skill-chip-remove";
+      button.setAttribute("aria-label", "Remove " + skill);
+      button.textContent = "x";
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
+        removeSkill(skill);
+      });
+      chip.appendChild(button);
+      selectedChips.appendChild(chip);
     });
   }
 
-  // Add skill on quick-pick chip click
-  quickPickChips.forEach(function (chip) {
-    chip.addEventListener("click", function () {
-      addSkill(chip.getAttribute("data-skill"));
-      hideSuggestions();
-      skillsTextInput.value = "";
-    });
-  });
-
-  document.addEventListener("click", function (evt) {
-    if (skillWrap && !skillWrap.contains(evt.target)) {
-      hideSuggestions();
-    }
-  });
-
-  function addSkill(rawSkill) {
-    var skill = getCanonicalSkill(rawSkill);
-    if (!skill) return;
-
-    // Block duplicate entries (case-insensitive)
-    if (isSkillSelected(skill)) return;
-
+  window.addSkill = function addSkill(rawSkill) {
+    var skill = canonicalSkill(rawSkill);
+    if (!skill || isSelected(skill)) return;
     selectedSkills.push(skill);
     renderSelectedChips();
     syncSkillsHiddenInput();
     updateQuickPickState();
     clearFieldError("skills-error");
-  }
+    if (skillsInput) skillsInput.focus();
+  };
 
   function removeSkill(skill) {
-    selectedSkills = selectedSkills.filter(function (selectedSkill) {
-      return normalizeSkill(selectedSkill) !== normalizeSkill(skill);
-    });
-
+    selectedSkills = selectedSkills.filter(function (item) { return normalize(item) !== normalize(skill); });
     renderSelectedChips();
     syncSkillsHiddenInput();
     updateQuickPickState();
   }
 
-  function renderSelectedChips() {
-    chipsSelectedEl.innerHTML = "";
-    selectedSkills.forEach(function (skill) {
-      var chipEl = document.createElement("span");
-      chipEl.className = "skill-chip-selected";
-      chipEl.textContent = skill;
-
-      // Remove button for each chip
-      var removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "skill-chip-remove";
-      removeBtn.innerHTML = "&times;";
-      removeBtn.setAttribute("aria-label", "Remove " + skill);
-      removeBtn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        removeSkill(skill);
-      });
-
-      chipEl.appendChild(removeBtn);
-      chipsSelectedEl.appendChild(chipEl);
-    });
+  function clearFieldError(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = "";
   }
 
   function syncSkillsHiddenInput() {
+    if (!skillsHidden){
+      skillsHidden = document.getElementById("skills");
+    }
     // Keep the hidden <input> in sync for form serialisation
+    // The API expects a comma-separated string, so join the array that way
     skillsHidden.value = selectedSkills.join(", ");
-  }
-
-  updateQuickPickState();
-
-
-  // ----------------------------------------------------------
-  // Form validation
-  // ----------------------------------------------------------
-
-  function showFieldError(fieldId, message) {
-    var el = document.getElementById(fieldId);
-    if (el) el.textContent = message;
-  }
-
-  function clearFieldError(fieldId) {
-    var el = document.getElementById(fieldId);
-    if (el) el.textContent = "";
   }
 
   function clearAllErrors() {
     ["skills-error", "level-error", "interest-error", "time-error"].forEach(clearFieldError);
-    var generalErr = document.getElementById("form-error-general");
-    if (generalErr) generalErr.textContent = "";
+    var general = document.getElementById("form-error-general");
+    if (general) general.textContent = "";
+  }
+
+  function hideSuggestions() {
+    visibleSuggestions = [];
+    activeSuggestionIndex = -1;
+    suggestions.style.display = "none";
+    suggestions.textContent = "";
+    skillsInput.setAttribute("aria-expanded", "false");
+  }
+
+  function filteredSkills(query) {
+    var q = normalize(query);
+    if (!q) return [];
+    return availableSkills.filter(function (skill) {
+      return normalize(skill).indexOf(q) !== -1 && !isSelected(skill);
+    }).slice(0, 8);
+  }
+
+  function renderSuggestionState() {
+    suggestions.querySelectorAll(".suggestion-item").forEach(function (item, index) {
+      item.classList.toggle("suggestion-item--active", index === activeSuggestionIndex);
+      item.setAttribute("aria-selected", index === activeSuggestionIndex ? "true" : "false");
+    });
+  }
+
+  function showSuggestions(items) {
+    visibleSuggestions = items;
+    activeSuggestionIndex = -1;
+    suggestions.textContent = "";
+    if (!items.length) {
+      hideSuggestions();
+      return;
+    }
+    items.forEach(function (skill, index) {
+      var item = document.createElement("div");
+      item.className = "suggestion-item";
+      item.id = "skills-suggestion-" + index;
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", "false");
+      item.textContent = skill;
+      item.addEventListener("mousedown", function (event) { event.preventDefault(); });
+      item.addEventListener("mouseenter", function () {
+        activeSuggestionIndex = index;
+        renderSuggestionState();
+      });
+      item.addEventListener("click", function () {
+        window.addSkill(skill);
+        skillsInput.value = "";
+        hideSuggestions();
+      });
+      suggestions.appendChild(item);
+    });
+    suggestions.style.display = "block";
+    skillsInput.setAttribute("aria-expanded", "true");
   }
 
   function validateForm() {
     var valid = true;
-
-    if (selectedSkills.length === 0 && !skillsHidden.value.trim()) {
+    if (!selectedSkills.length) {
       showFieldError("skills-error", "Please add at least one skill.");
       valid = false;
     }
@@ -392,68 +567,15 @@ if (isIndexPage) {
       showFieldError("time-error", "Please select your time availability.");
       valid = false;
     }
-
     return valid;
   }
 
-
-  // ----------------------------------------------------------
-  // Form submission and API call
-  // ----------------------------------------------------------
-
-  form.addEventListener("submit", function (evt) {
-    evt.preventDefault();
-    clearAllErrors();
-
-    if (skillsTextInput.value.trim()) {
-      addSkill(skillsTextInput.value);
-      skillsTextInput.value = "";
-      hideSuggestions();
-    }
-
-    if (!validateForm()) return;
-
-    setLoadingState(true);
-
-    var payload = {
-      skills: skillsHidden.value.trim() || skillsTextInput.value.trim(),
-      level: document.getElementById("level").value,
-      interest: document.getElementById("interest").value,
-      time: document.getElementById("time").value
-    };
-
-    fetch("/api/recommend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        setLoadingState(false);
-
-        if (data.error) {
-          var generalErr = document.getElementById("form-error-general");
-          if (generalErr) generalErr.textContent = data.error;
-          return;
-        }
-
-        renderResults(data.projects || [], data.message);
-      })
-      .catch(function (err) {
-        setLoadingState(false);
-        var generalErr = document.getElementById("form-error-general");
-        if (generalErr) generalErr.textContent = "Something went wrong. Please try again.";
-        console.error("API request failed:", err);
-      });
-  });
-
   function setLoadingState(isLoading) {
     submitBtn.disabled = isLoading;
+    submitBtn.setAttribute("aria-busy", isLoading ? "true" : "false");
     btnLabel.style.display = isLoading ? "none" : "inline";
-    btnLoading.style.display = isLoading ? "inline" : "none";
-
+    btnLoading.style.display = isLoading ? "inline-flex" : "none";
     if (isLoading) {
-      // Show the results section with only the loading indicator visible
       resultsSection.style.display = "block";
       resultsLoadingEl.style.display = "block";
       resultsGrid.style.display = "none";
@@ -461,106 +583,364 @@ if (isIndexPage) {
       resultsSection.scrollIntoView({ behavior: "smooth" });
     } else {
       resultsLoadingEl.style.display = "none";
-      resultsGrid.style.display = "grid";
     }
   }
 
+  function truncate(text, maxLength) {
+    text = text || "";
+    return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+  }
 
-  // ----------------------------------------------------------
-  // Render result cards
-  // ----------------------------------------------------------
-
-  function renderResults(projects, message) {
-    resultsSection.style.display = "block";
-    resultsLoadingEl.style.display = "none";
-    resultsGrid.innerHTML = "";
-
-    if (!projects || projects.length === 0) {
-      resultsGrid.style.display = "none";
-      resultsEmptyEl.style.display = "block";
-      if (message && emptyMessageEl) emptyMessageEl.textContent = message;
-      resultsSection.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-
-    resultsEmptyEl.style.display = "none";
-    resultsGrid.style.display = "grid";
-
-    projects.forEach(function (project) {
-      resultsGrid.appendChild(buildProjectCard(project));
-    });
-
-    resultsSection.scrollIntoView({ behavior: "smooth" });
+  function createTag(text, type) {
+    var span = document.createElement("span");
+    span.className = "project-tag project-tag--" + normalize(type).replace(/[^a-z0-9_-]/g, "-");
+    span.textContent = text;
+    return span;
   }
 
   function buildProjectCard(project) {
     var card = document.createElement("div");
     card.className = "project-card";
 
-    // Title
     var title = document.createElement("h3");
     title.className = "project-card-title";
     title.textContent = project.title;
 
-    // Description (truncated for visual consistency)
     var desc = document.createElement("p");
     desc.className = "project-card-desc";
-    desc.textContent = truncate(project.description, 120);
+    var descText = document.createElement("span");
+    descText.className = "project-card-desc-text";
+    descText.textContent = truncate(project.description, 120);
+    desc.appendChild(descText);
 
-    // Tags row
-    var tagsRow = document.createElement("div");
-    tagsRow.className = "project-card-tags";
+    if (project.description && project.description.length > 120) {
+      var expanded = false;
+      var readMore = document.createElement("button");
+      readMore.type = "button";
+      readMore.className = "read-more-btn";
+      readMore.textContent = "Read more";
+      readMore.setAttribute("aria-expanded", "false");
+      readMore.addEventListener("click", function () {
+        expanded = !expanded;
+        descText.textContent = expanded ? project.description : truncate(project.description, 120);
+        readMore.textContent = expanded ? "Read less" : "Read more";
+        readMore.setAttribute("aria-expanded", expanded ? "true" : "false");
+      });
+      desc.appendChild(readMore);
+    }
 
-    // Show the first two skills as tags
-    (project.skills || []).slice(0, 2).forEach(function (skill) {
-      tagsRow.appendChild(createTag(skill, "skill"));
-    });
+    var tags = document.createElement("div");
+    tags.className = "project-card-tags";
+    (project.skills || []).forEach(function (skill) { tags.appendChild(createTag(skill, "skill")); });
+    tags.appendChild(createTag(project.level, project.level));
+    tags.appendChild(createTag("Time: " + project.time, "time"));
 
-    // Level tag (colour-coded via CSS class)
-    var levelClass = "level " + (project.level || "").toLowerCase();
-    tagsRow.appendChild(createTag(project.level, levelClass));
-
-    // Time tag
-    tagsRow.appendChild(createTag("Time: " + project.time, "time"));
-
-    // Footer with view-details link
     var footer = document.createElement("div");
     footer.className = "project-card-footer";
+
+    var saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "btn-save-project";
+    saveButton.setAttribute("data-save-project-id", project.id);
+    saveButton.setAttribute("aria-pressed", projectIsSaved(project.id) ? "true" : "false");
+    if (projectIsSaved(project.id)) {
+      saveButton.classList.add("saved");
+      saveButton.textContent = "Saved";
+    } else {
+      saveButton.textContent = "Save Project";
+    }
+    saveButton.addEventListener("click", function () {
+      toggleSavedProject(project, saveButton);
+    });
 
     var link = document.createElement("a");
     link.className = "btn-details";
     link.textContent = "View Full Project";
     link.href = "/project/" + project.id;
-
+    footer.appendChild(saveButton);
     footer.appendChild(link);
 
     card.appendChild(title);
     card.appendChild(desc);
-    card.appendChild(tagsRow);
+    card.appendChild(tags);
     card.appendChild(footer);
-
     return card;
   }
 
-  function createTag(text, type) {
-    var span = document.createElement("span");
-    span.className = "project-tag project-tag--" + type;
-    span.textContent = text;
-    return span;
+  renderSavedProjects();
+
+  function renderResults(projects, message) {
+    resultsSection.style.display = "block";
+    resultsLoadingEl.style.display = "none";
+    resultsGrid.textContent = "";
+    if (!projects || projects.length === 0) {
+      resultsGrid.style.display = "none";
+      resultsEmptyEl.style.display = "block";
+      emptyMessageEl.textContent = message || "Try adjusting your skills or choosing a different interest area.";
+      resultsSection.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    resultsEmptyEl.style.display = "none";
+    resultsGrid.style.display = "grid";
+    projects.forEach(function (project) { resultsGrid.appendChild(buildProjectCard(project)); });
+    resultsSection.scrollIntoView({ behavior: "smooth" });
   }
 
-  function truncate(text, maxLength) {
-    if (!text) return "";
-    return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+  function runProjectSearch(query) {
+    if (!query) return;
+    setLoadingState(true);
+    fetch("/api/search?q=" + encodeURIComponent(query))
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error("Search failed. Please try again.");
+          return data;
+        });
+      })
+      .then(function (projects) {
+        setLoadingState(false);
+        recordSearch();
+        var message = projects.length
+          ? null
+          : "No projects matched \"" + query + "\". Try a different keyword.";
+        renderResults(projects, message);
+        var mobileMenu = document.getElementById("nav-mobile-menu");
+        var mobileToggle = document.getElementById("nav-mobile-toggle");
+        if (mobileMenu && mobileMenu.classList.contains("open")) {
+          mobileMenu.classList.remove("open");
+          if (mobileToggle) {
+            mobileToggle.classList.remove("open");
+            mobileToggle.setAttribute("aria-expanded", "false");
+          }
+        }
+      })
+      .catch(function (err) {
+        setLoadingState(false);
+        var general = document.getElementById("form-error-general");
+        if (general) general.textContent = err.message || "Search failed. Please try again.";
+      });
   }
 
-} // end isIndexPage
+  function bindSearchForm(form, input) {
+    if (!form || !input) return;
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      runProjectSearch(input.value.trim());
+    });
+  }
 
+  bindSearchForm(document.getElementById("topic-search-form"), document.getElementById("topic-search"));
+  bindSearchForm(document.getElementById("topic-search-form-mobile"), document.getElementById("topic-search-mobile"));
 
-// ============================================================
-// DETAIL PAGE
-// ============================================================
-if (isDetailPage) {
+  skillsInput.setAttribute("role", "combobox");
+  skillsInput.setAttribute("aria-expanded", "false");
+  suggestions.setAttribute("role", "listbox");
+
+  skillsInput.addEventListener("input", function () {
+    showSuggestions(filteredSkills(skillsInput.value));
+  });
+  skillsInput.addEventListener("focus", function () {
+    if (skillsInput.value.trim()) showSuggestions(filteredSkills(skillsInput.value));
+  });
+  skillsInput.addEventListener("blur", function () {
+    window.setTimeout(hideSuggestions, 150);
+  });
+  skillsInput.addEventListener("keydown", function (event) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!visibleSuggestions.length) showSuggestions(filteredSkills(skillsInput.value));
+      if (!visibleSuggestions.length) return;
+      event.preventDefault();
+      activeSuggestionIndex = event.key === "ArrowDown"
+        ? (activeSuggestionIndex + 1) % visibleSuggestions.length
+        : (activeSuggestionIndex <= 0 ? visibleSuggestions.length - 1 : activeSuggestionIndex - 1);
+      renderSuggestionState();
+      return;
+    }
+    if (event.key === "Escape") {
+      hideSuggestions();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (activeSuggestionIndex >= 0 && visibleSuggestions[activeSuggestionIndex]) {
+        window.addSkill(visibleSuggestions[activeSuggestionIndex]);
+      } else {
+        window.addSkill(skillsInput.value);
+      }
+      skillsInput.value = "";
+      hideSuggestions();
+    }
+  });
+
+  quickPickChips.forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      var skill = chip.getAttribute("data-skill");
+      if (isSelected(skill)) removeSkill(skill);
+      else window.addSkill(skill);
+      skillsInput.value = "";
+      hideSuggestions();
+    });
+  });
+
+  if (skillWrap) {
+    skillWrap.addEventListener("click", function () { skillsInput.focus(); });
+  }
+
+  var clearBtn = document.getElementById("clear-filters-btn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      form.reset();
+      selectedSkills = [];
+      renderSelectedChips();
+      syncSkillsHiddenInput();
+      updateQuickPickState();
+      clearAllErrors();
+      hideSuggestions();
+      resultsSection.style.display = "none";
+      skillsInput.focus();
+    });
+  }
+
+  var resetProgressBtn = document.getElementById("reset-progress-btn");
+  if (resetProgressBtn) {
+    resetProgressBtn.addEventListener("click", function () {
+      progress.searches = 0;
+      progress.projectViews = 0;
+      progress.codeOpens = 0;
+      progress.completions = 0;
+      progress.points = 0;
+      progress.viewedProjects = [];
+      progress.completedProjects = [];
+      progress.achievements = [];
+      progress.badges = {
+        first_search: false,
+        project_explorer: false,
+        code_starter: false,
+        completionist: false,
+        roadmap_runner: false
+      };
+      saveProgressState();
+      updateProfileWidgets();
+      showAchievementToast("Progress reset", "Your local profile has been cleared.");
+    });
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearAllErrors();
+    if (skillsInput.value.trim()) {
+      window.addSkill(skillsInput.value);
+      skillsInput.value = "";
+      hideSuggestions();
+    }
+    if (!validateForm()) return;
+    setLoadingState(true);
+    fetch("/api/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        skills: JSON.stringify(selectedSkills),
+        level: document.getElementById("level").value,
+        interest: document.getElementById("interest").value,
+        time: document.getElementById("time").value
+      })
+    })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "Unable to generate recommendations.");
+          return data;
+        });
+      })
+      .then(function (data) {
+        setLoadingState(false);
+        recordSearch();
+        renderResults(data.projects || [], data.message);
+      })
+      .catch(function (err) {
+        setLoadingState(false);
+        var general = document.getElementById("form-error-general");
+        if (general) general.textContent = err.message || "An unexpected error occurred. Please try again.";
+      });
+  });
+
+  var modal = document.getElementById("github-modal-overlay");
+  var openModalBtn = document.getElementById("btn-show-github");
+  var closeModalBtn = document.getElementById("btn-close-github");
+  var fetchBtn = document.getElementById("btn-fetch-github");
+  var githubInput = document.getElementById("github-username");
+  var errorMsg = document.getElementById("github-modal-error");
+
+  function closeGithubModal() {
+  modal.classList.remove("active");
+  githubInput.value = "";
+  errorMsg.textContent = "";
+  openModalBtn.focus(); // add this line
+}
+
+  if (modal && openModalBtn && closeModalBtn && fetchBtn && githubInput && errorMsg) {
+    openModalBtn.addEventListener("click", function () {
+      modal.classList.add("active");
+      githubInput.focus();
+    });
+    modal.addEventListener("keydown", function (event) {
+  if (!modal.classList.contains("active")) return;
+  var focusable = modal.querySelectorAll("button, input");
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+  if (event.key === "Tab") {
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+  if (event.key === "Escape") closeGithubModal();
+});
+    closeModalBtn.addEventListener("click", closeGithubModal);
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) closeGithubModal();
+    });
+    fetchBtn.addEventListener("click", function () {
+      var username = githubInput.value.trim();
+      errorMsg.textContent = "";
+      if (!username) {
+        errorMsg.textContent = "Please enter a GitHub username.";
+        return;
+      }
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = "Syncing...";
+      fetch("https://api.github.com/users/" + encodeURIComponent(username) + "/repos?sort=updated&per_page=100")
+        .then(function (response) {
+          if (!response.ok) throw new Error(response.status === 404 ? "Username not found." : "Unable to fetch GitHub repositories.");
+          return response.json();
+        })
+        .then(function (repos) {
+          var languages = [];
+          repos.forEach(function (repo) {
+            if (repo.language && languages.indexOf(repo.language) === -1) languages.push(repo.language);
+          });
+          if (!languages.length) {
+            errorMsg.textContent = "No public languages found.";
+            return;
+          }
+          languages.forEach(window.addSkill);
+          closeGithubModal();
+        })
+        .catch(function (err) {
+          errorMsg.textContent = err.message || "Failed to fetch skills.";
+        })
+        .finally(function () {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = "Fetch Skills";
+        });
+    });
+  }
+})();
+
+(function initDetailPage() {
+  if (typeof PROJECT_ID === "undefined") return;
+  recordProjectView();
 
   var codePanel = document.getElementById("code-panel");
   var codePanelOverlay = document.getElementById("code-panel-overlay");
@@ -569,16 +949,54 @@ if (isDetailPage) {
   var btnViewCode = document.getElementById("btn-view-code");
   var btnViewCodeSm = document.getElementById("btn-view-code-sm");
   var btnClosePanel = document.getElementById("code-panel-close");
-
-  // Cache flag so code is only fetched once per page load
+  var btnCopyCode = document.getElementById("btn-copy-code");
+  var copyToast = document.getElementById("copy-toast");
+  var completionBtn = document.getElementById("btn-mark-complete");
   var codeFetched = false;
+
+  function renderCode(code) {
+    codeContentEl.textContent = "";
+    String(code || "").split("\n").forEach(function (line, index) {
+      var row = document.createElement("div");
+      row.className = "code-line";
+      var number = document.createElement("span");
+      number.className = "code-line-number";
+      number.setAttribute("aria-hidden", "true");
+      number.textContent = index + 1;
+      var content = document.createElement("span");
+      content.className = "code-line-content";
+      content.textContent = line;
+      row.appendChild(number);
+      row.appendChild(content);
+      codeContentEl.appendChild(row);
+    });
+  }
+
+  function fetchStarterCode() {
+    codeContentEl.textContent = "Loading starter code...";
+    fetch("/project/" + PROJECT_ID + "/code")
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "Starter code unavailable.");
+          return data;
+        });
+      })
+      .then(function (data) {
+        codePanelFilename.textContent = data.filename;
+        renderCode(data.code);
+        codeFetched = true;
+      })
+      .catch(function (err) {
+        codeContentEl.textContent = err.message || "Could not load starter code. Try downloading it instead.";
+      });
+  }
 
   function openCodePanel() {
     if (!codePanel) return;
     codePanel.classList.add("active");
     if (codePanelOverlay) codePanelOverlay.classList.add("active");
     document.body.style.overflow = "hidden";
-
+    recordCodeOpen();
     if (!codeFetched) fetchStarterCode();
   }
 
@@ -589,103 +1007,106 @@ if (isDetailPage) {
     document.body.style.overflow = "";
   }
 
-  function fetchStarterCode() {
-    if (codeContentEl) codeContentEl.textContent = "Loading starter code...";
-
-    fetch("/project/" + PROJECT_ID + "/code")
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.error) {
-          if (codeContentEl) codeContentEl.textContent = "Error: " + data.error;
-          return;
-        }
-        if (codePanelFilename) codePanelFilename.textContent = data.filename;
-        if (codeContentEl) codeContentEl.textContent = data.code;
-        codeFetched = true;
-      })
-      .catch(function () {
-        if (codeContentEl) {
-          codeContentEl.textContent = "Could not load starter code. Try downloading it instead.";
-        }
-      });
-  }
-
-  // Attach open/close handlers
   if (btnViewCode) btnViewCode.addEventListener("click", openCodePanel);
   if (btnViewCodeSm) btnViewCodeSm.addEventListener("click", openCodePanel);
   if (btnClosePanel) btnClosePanel.addEventListener("click", closeCodePanel);
-
-  if (codePanelOverlay) {
-    codePanelOverlay.addEventListener("click", closeCodePanel);
-  }
-
-  document.addEventListener("keydown", function (evt) {
-    if (evt.key === "Escape") closeCodePanel();
+  if (codePanelOverlay) codePanelOverlay.addEventListener("click", closeCodePanel);
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closeCodePanel();
   });
-
-  // ----------------------------------------------------------
-  // Copy Code button
-  // ----------------------------------------------------------
-  var btnCopyCode  = document.getElementById("btn-copy-code");
-  var copyToast    = document.getElementById("copy-toast");
-  var toastTimeout = null;
-
-  function showCopySuccess() {
-    if (!btnCopyCode) return;
-
-    // Swap icons on the button
-    var copyIcon  = btnCopyCode.querySelector(".copy-icon");
-    var checkIcon = btnCopyCode.querySelector(".check-icon");
-    var btnLabel  = btnCopyCode.querySelector(".copy-btn-label");
-
-    if (copyIcon)  copyIcon.style.display  = "none";
-    if (checkIcon) checkIcon.style.display = "inline";
-    if (btnLabel)  btnLabel.textContent    = "Copied!";
-    btnCopyCode.classList.add("copied");
-    btnCopyCode.disabled = true;
-
-    // Show toast
-    if (copyToast) {
-      copyToast.classList.add("show");
-    }
-
-    // Auto-reset after 2.5 s
-    clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(function () {
-      if (copyIcon)  copyIcon.style.display  = "inline";
-      if (checkIcon) checkIcon.style.display = "none";
-      if (btnLabel)  btnLabel.textContent    = "Copy Code";
-      btnCopyCode.classList.remove("copied");
-      btnCopyCode.disabled = false;
-      if (copyToast) copyToast.classList.remove("show");
-    }, 2500);
-  }
 
   if (btnCopyCode) {
     btnCopyCode.addEventListener("click", function () {
-      var code = codeContentEl ? codeContentEl.textContent : "";
-      if (!code || code === "Loading..." || code === "Loading starter code...") return;
-
-      // Use Clipboard API with textarea fallback
+      var code = Array.prototype.slice.call(codeContentEl.querySelectorAll(".code-line-content"))
+        .map(function (line) { return line.textContent; })
+        .join("\n");
+      if (!code) return;
+      var done = function () {
+        if (copyToast) {
+          copyToast.classList.add("show");
+          window.setTimeout(function () { copyToast.classList.remove("show"); }, 2500);
+        }
+      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(code).then(showCopySuccess).catch(function () {
-          fallbackCopy(code);
-        });
+        navigator.clipboard.writeText(code).then(done);
       } else {
-        fallbackCopy(code);
+        var textarea = document.createElement("textarea");
+        textarea.value = code;
+        textarea.style.cssText = "position:fixed;top:-9999px;left:-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try { document.execCommand("copy"); } catch (err) {}
+        document.body.removeChild(textarea);
+        done();
       }
     });
   }
 
-  function fallbackCopy(text) {
-    var ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    try { document.execCommand("copy"); showCopySuccess(); } catch (e) { /* silent fail */ }
-    document.body.removeChild(ta);
+  var roadmapCheckboxes = Array.prototype.slice.call(document.querySelectorAll(".roadmap-checkbox"));
+  var progressFill = document.getElementById("roadmap-progress-fill");
+  var progressText = document.getElementById("roadmap-progress-text");
+  var progressBar = document.querySelector(".roadmap-progress-bar");
+  var roadmapStorageKey = "devpath-roadmap-progress-" + PROJECT_ID;
+
+  function updateRoadmapProgress() {
+    if (!roadmapCheckboxes.length) return;
+    var completed = roadmapCheckboxes.filter(function (checkbox) { return checkbox.checked; }).length;
+    var percent = Math.round((completed / roadmapCheckboxes.length) * 100);
+    roadmapCheckboxes.forEach(function (checkbox) {
+      var step = checkbox.closest(".roadmap-step");
+      if (step) step.classList.toggle("completed", checkbox.checked);
+    });
+    if (progressFill) progressFill.style.width = percent + "%";
+    if (progressText) progressText.textContent = percent + "% completed";
+    if (progressBar) progressBar.setAttribute("aria-valuenow", String(percent));
+    try {
+      localStorage.setItem(roadmapStorageKey, JSON.stringify(roadmapCheckboxes.map(function (checkbox) {
+        return checkbox.checked;
+      })));
+    } catch (err) {}
   }
 
-} // end isDetailPage
+  try {
+    var saved = JSON.parse(localStorage.getItem(roadmapStorageKey) || "[]");
+    roadmapCheckboxes.forEach(function (checkbox, index) {
+      checkbox.checked = !!saved[index];
+    });
+  } catch (err) {}
+  roadmapCheckboxes.forEach(function (checkbox) {
+    checkbox.addEventListener("change", updateRoadmapProgress);
+  });
+  updateRoadmapProgress();
+
+  if (completionBtn) {
+    completionBtn.addEventListener("click", function () {
+      recordCompletion(PROJECT_ID, typeof PROJECT_TITLE !== "undefined" ? PROJECT_TITLE : "");
+      showAchievementToast("Project completed", "Nice work finishing this project.");
+    });
+  }
+})();
+
+(function initScrollButton() {
+  var button = document.getElementById("scroll-top-btn");
+  var icon = document.getElementById("scroll-btn-icon");
+  if (!button) return;
+  var atBottom = false;
+
+  function nearBottom() {
+    return window.innerHeight + window.pageYOffset >= document.body.scrollHeight - 40;
+  }
+
+  function update() {
+    button.classList.toggle("visible", window.pageYOffset > 200);
+    atBottom = nearBottom();
+    button.setAttribute("aria-label", atBottom ? "Scroll to top" : "Scroll to bottom");
+    button.title = atBottom ? "Scroll to top" : "Scroll to bottom";
+    if (icon) icon.innerHTML = atBottom ? '<polyline points="18 15 12 9 6 15"/>' : '<polyline points="6 9 12 15 18 9"/>';
+  }
+
+  window.addEventListener("scroll", update, { passive: true });
+  button.addEventListener("click", function () {
+    window.scrollTo({ top: atBottom ? 0 : document.body.scrollHeight, behavior: "smooth" });
+  });
+  update();
+})();
