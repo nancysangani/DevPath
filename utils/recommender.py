@@ -110,8 +110,102 @@ def score_single_project(project, user_skills, level, interest, time_availabilit
 
     if project_time == user_time:
         score += SCORING_WEIGHTS["time"]
+        
+    graph = _load_skill_graph()
+    score += gap_boost(user_skills, project_skills, graph)
 
     return score
+
+# ---------------------------------------------------------------------------
+# Skill graph helpers
+# ---------------------------------------------------------------------------
+
+def _load_skill_graph():
+    """Load skill_graph.json from data/. Returns empty dict on failure."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "skill_graph.json"
+    )
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _hops_to_skill(target, user_skills, graph, max_hops=3):
+    """
+    BFS from every known user skill — find minimum hops to reach target.
+    Returns None if unreachable within max_hops.
+    """
+    if target in user_skills:
+        return 0
+
+    visited = set(user_skills)
+    frontier = list(user_skills)
+    
+    for hop in range(1, max_hops + 1):
+        next_frontier = []
+        for skill in frontier:
+            for neighbour in graph.get(skill, []):
+                if neighbour == target:
+                    return hop
+                if neighbour not in visited:
+                    visited.add(neighbour)
+                    next_frontier.append(neighbour)
+        frontier = next_frontier
+
+    return None
+
+
+def gap_boost(user_skills, project_skills, graph):
+    """
+    For each project skill the user doesn't have,
+    compute boost based on graph distance.
+    
+    boost = 1/hops per reachable missing skill
+    Returns total boost score (float).
+    """
+    boost = 0.0
+    for skill in project_skills:
+        if skill not in user_skills:
+            hops = _hops_to_skill(skill, user_skills, graph)
+            if hops and hops > 0:
+                boost += 1.0 / hops
+    return round(boost, 3)
+
+
+def get_progression(user_skills, recommended_ids, all_projects, graph):
+    """
+    Return projects that are 1 hop away from user's current skills
+    but were NOT already recommended.
+    """
+    # Find all 1-hop reachable skills
+    reachable = set()
+    for skill in user_skills:
+        for neighbour in graph.get(skill, []):
+            reachable.add(neighbour)
+
+    progression = []
+    for project in all_projects:
+        if project["id"] in recommended_ids:
+            continue
+        project_skills = [
+            SKILL_ALIASES.get(s.lower(), s.lower())
+            for s in project.get("skills", [])
+        ]
+        # Project skills must overlap with reachable skills
+        if any(s in reachable for s in project_skills):
+            boost = gap_boost(user_skills, project_skills, graph)
+            progression.append({
+                "project": project,
+                "gap_score": boost
+            })
+            
+    progression.sort(key=lambda x: x["gap_score"], reverse=True)
+    return progression[:3]
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +281,8 @@ def get_recommendations(skills_string, level, interest, time_availability):
     """
     user_skills  = parse_skills(skills_string)
     all_projects = load_all_projects()
+    graph = _load_skill_graph()
+    
 
     scored = []
     for project in all_projects:
@@ -202,14 +298,18 @@ def get_recommendations(skills_string, level, interest, time_availability):
 
     cluster_data = _load_clusters()
     related = _get_related(top_ids, all_projects, cluster_data) if cluster_data else []
+    graph = _load_skill_graph()
+    progression = get_progression(user_skills, top_ids, all_projects, graph)
 
     return {
         "recommendations": top_projects,
         "related":         related,
+        "progression":     progression,
     }
 
 
 VALID_LEVELS = ["beginner", "intermediate", "advanced"]
+VALID_INTERESTS = ["data", "web", "backend", "cybersecurity", "games", "education", "automation"]
 VALID_TIME_AVAILABILITY = ["low", "medium", "high"]
 
 
