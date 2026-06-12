@@ -19,7 +19,12 @@
   }
 
   function initTheme() {
-    var theme = html.getAttribute("data-theme") || "light";
+    var theme = "light";
+    try {
+      theme = localStorage.getItem("theme") || html.getAttribute("data-theme") || "light";
+    } catch (err) {
+      theme = html.getAttribute("data-theme") || "light";
+    }
     applyTheme(theme);
     requestAnimationFrame(function () {
       html.classList.add("theme-ready");
@@ -37,6 +42,82 @@
   initTheme();
 })();
 
+// ============================================================
+// Detect which page we are on
+// ============================================================
+var isIndexPage = !!document.getElementById("recommend-form");
+// !! trick turns the DOM result into a simple true/false
+var isIndexPage = !!document.getElementById("recommend-form");
+// PROJECT_ID is set by the server only on detail pages, so if it's missing we're elsewhere
+var isDetailPage = typeof PROJECT_ID !== "undefined";
+var modal = document.getElementById('github-modal-overlay');
+var openModalBtn = document.getElementById('btn-show-github'); // The trigger in your main form
+var closeModalBtn = document.getElementById('btn-close-github');
+var fetchBtn = document.getElementById('btn-fetch-github');
+var githubInput = document.getElementById('github-username');
+var errorMsg = document.getElementById('github-modal-error');
+
+// ============================================================
+// Lenis Smooth Scrolling Initialization (runs on all pages)
+// ============================================================
+(function initLenis() {
+  // Respect user's motion preferences for accessibility
+  var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  
+  // Don't initialize smooth scrolling if user prefers reduced motion
+  if (prefersReducedMotion.matches) {
+    return;
+  }
+  
+  // Check if Lenis is available (CDN loaded successfully)
+  if (typeof Lenis === 'undefined') {
+    console.warn('Lenis library not loaded. Smooth scrolling disabled.');
+    return;
+  }
+  
+  var lenis = new Lenis({
+    duration: 1.2,
+    easing: function(t) { return Math.min(1, 1.001 - Math.pow(2, -10 * t)); },
+    smoothWheel: true,
+    smoothTouch: false
+  });
+
+  function raf(time) {
+    lenis.raf(time);
+    requestAnimationFrame(raf);
+  }
+  
+  requestAnimationFrame(raf);
+
+  // Integrate with anchor links for smooth navigation
+  document.querySelectorAll('a[href^="#"]').forEach(function(anchor) {
+    anchor.addEventListener('click', function (e) {
+      var href = this.getAttribute('href');
+      if (href === '#') return;
+      
+      e.preventDefault();
+      var target = document.querySelector(href);
+      if (target) {
+        lenis.scrollTo(target, {
+          offset: 0,
+          duration: 1.2
+        });
+      }
+    });
+  });
+  
+  // Listen for preference changes (user changes system settings while page is open)
+  prefersReducedMotion.addEventListener('change', function() {
+    if (prefersReducedMotion.matches) {
+      lenis.destroy();
+    }
+  });
+})();
+
+
+// ============================================================
+// Mobile navigation toggle (runs on all pages)
+// ============================================================
 (function initMobileNav() {
   var toggle = document.getElementById("nav-mobile-toggle");
   var menu = document.getElementById("nav-mobile-menu");
@@ -296,9 +377,117 @@ updateProfileWidgets();
     : quickPickChips.map(function (chip) { return chip.getAttribute("data-skill"); });
   var activeSuggestionIndex = -1;
   var visibleSuggestions = [];
+  var SAVED_PROJECTS_KEY = "devpathSavedProjects";
 
   function normalize(value) {
     return String(value || "").trim().toLowerCase();
+  }
+
+  function getSavedProjects() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(SAVED_PROJECTS_KEY) || "[]");
+      return Array.isArray(saved) ? saved : [];
+    } catch (err) {
+      console.warn("Unable to load saved projects", err);
+      return [];
+    }
+  }
+
+  function saveSavedProjects(projects) {
+    try {
+      localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(projects));
+    } catch (err) {
+      console.warn("Unable to save projects", err);
+    }
+  }
+
+  function projectIsSaved(projectId) {
+    return getSavedProjects().some(function (project) {
+      return String(project.id) === String(projectId);
+    });
+  }
+
+  function saveProject(project) {
+    var saved = getSavedProjects();
+    if (saved.some(function (item) { return String(item.id) === String(project.id); })) return;
+
+    saved.unshift({
+      id: project.id,
+      title: project.title,
+      level: project.level || "",
+      time: project.time || "",
+      skills: Array.isArray(project.skills) ? project.skills.slice(0, 4) : []
+    });
+    saveSavedProjects(saved);
+    renderSavedProjects();
+  }
+
+  function removeSavedProject(projectId) {
+    var saved = getSavedProjects().filter(function (project) {
+      return String(project.id) !== String(projectId);
+    });
+    saveSavedProjects(saved);
+    renderSavedProjects();
+    document.querySelectorAll("[data-save-project-id='" + projectId + "']").forEach(function (button) {
+      button.classList.remove("saved");
+      button.textContent = "Save Project";
+      button.setAttribute("aria-pressed", "false");
+    });
+  }
+
+  function toggleSavedProject(project, button) {
+    if (projectIsSaved(project.id)) {
+      removeSavedProject(project.id);
+      return;
+    }
+
+    saveProject(project);
+    button.classList.add("saved");
+    button.textContent = "Saved";
+    button.setAttribute("aria-pressed", "true");
+  }
+
+  function renderSavedProjects() {
+    var list = document.getElementById("saved-projects-list");
+    var count = document.getElementById("saved-projects-count");
+    if (!list || !count) return;
+
+    var saved = getSavedProjects();
+    count.textContent = saved.length + " saved";
+    list.textContent = "";
+
+    if (!saved.length) {
+      var empty = document.createElement("p");
+      empty.className = "saved-projects-empty";
+      empty.textContent = "No saved projects yet.";
+      list.appendChild(empty);
+      return;
+    }
+
+    saved.forEach(function (project) {
+      var item = document.createElement("article");
+      item.className = "saved-project-item";
+
+      var title = document.createElement("a");
+      title.href = "/project/" + project.id;
+      title.textContent = project.title;
+
+      var meta = document.createElement("span");
+      meta.textContent = [project.level, project.time].filter(Boolean).join(" - ");
+
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "saved-project-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", function () {
+        removeSavedProject(project.id);
+      });
+
+      item.appendChild(title);
+      item.appendChild(meta);
+      item.appendChild(remove);
+      list.appendChild(item);
+    });
   }
 
   function syncSkillsHiddenInput() {
@@ -367,9 +556,13 @@ updateProfileWidgets();
     if (el) el.textContent = "";
   }
 
-  function showFieldError(id, message) {
-    var el = document.getElementById(id);
-    if (el) el.textContent = message;
+  function syncSkillsHiddenInput() {
+    if (!skillsHidden){
+      skillsHidden = document.getElementById("skills");
+    }
+    // Keep the hidden <input> in sync for form serialisation
+    // The API expects a comma-separated string, so join the array that way
+    skillsHidden.value = selectedSkills.join(", ");
   }
 
   function clearAllErrors() {
@@ -453,6 +646,70 @@ updateProfileWidgets();
     return valid;
   }
 
+
+
+  // ----------------------------------------------------------
+  // Form submission and API call
+  // ----------------------------------------------------------
+
+  form.addEventListener("submit", function (evt) {
+    evt.preventDefault(); //stop the browser from reloading the page on form submit
+    clearAllErrors();
+
+    if (skillsTextInput.value.trim()) {
+      addSkill(skillsTextInput.value);
+      skillsTextInput.value = "";
+      hideSuggestions();
+    }
+
+    if (!validateForm()) return; //stop - anything missing/invalid
+
+    setLoadingState(true);
+
+    // Allow browser to paint spinner before request starts
+    requestAnimationFrame(function () {
+
+      //combine form values into an object to send to server/api
+      var payload = {
+        // Prefer the hidden input value; fall back to raw text box if hidden input is empty
+        skills: skillsHidden.value.trim() || skillsTextInput.value.trim(),
+        level: document.getElementById("level").value,
+        interest: document.getElementById("interest").value,
+        time: document.getElementById("time").value
+      };
+
+      //post the data to backend api as JSON, then handle the response
+      fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload) //convert object to json string
+      })
+        .then(function (res) {
+          return res.json(); //parse the response as JSON
+        })
+        .then(function (data) {
+          setLoadingState(false);
+
+          if (data.error) {
+            var generalErr = document.getElementById("form-error-general");
+            if (generalErr) generalErr.textContent = data.error;
+            return;
+          }
+
+          renderResults(data.projects || [], data.message);
+        })
+        .catch(function (err) {
+          // this runs if the network request itself fails
+          setLoadingState(false);
+          var generalErr = document.getElementById("form-error-general");
+          if (generalErr) generalErr.textContent = "Something went wrong. Please try again.";
+          console.error("API request failed:", err);
+        });
+    });
+  });
+
+
+  // Manages the loading state of the form and results section(whats visible or not)
   function setLoadingState(isLoading) {
     submitBtn.disabled = isLoading;
     submitBtn.setAttribute("aria-busy", isLoading ? "true" : "false");
@@ -466,7 +723,54 @@ updateProfileWidgets();
       resultsSection.scrollIntoView({ behavior: "smooth" });
     } else {
       resultsLoadingEl.style.display = "none";
+      resultsGrid.style.display = "grid"; //switch back to grid layout
     }
+  }
+
+
+  // ----------------------------------------------------------
+  // Render result cards
+  // ----------------------------------------------------------
+
+  //takes the array of projects from the api and draws them on the page as cards
+  //if array is empty it shows the "no results" message instead
+  function renderResults(projects, message) {
+    resultsSection.style.display = "block";
+    resultsLoadingEl.style.display = "none";
+    // Clear out any cards from a previous search before showing new ones
+    resultsGrid.innerHTML = "";
+
+    if (!projects || projects.length === 0) { //if no projects returned from api, show the "no results" message and hide the grid
+      resultsGrid.style.display = "none";
+      resultsEmptyEl.style.display = "block";
+
+      var interestEl = document.getElementById("interest");
+      var selectedInterest = interestEl ? interestEl.value : null;
+
+      // Show a friendly custom message when the user selected an interest
+      if (emptyMessageEl) {
+        if (selectedInterest) {
+          emptyMessageEl.textContent = "No projects are currently available for this interest. Please check back later or try a different area.";
+        } else if (message) {
+          emptyMessageEl.textContent = message;
+        } else {
+          emptyMessageEl.textContent = "Try adjusting your skills or choosing a different interest area.";
+        }
+      }
+
+      resultsSection.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    resultsEmptyEl.style.display = "none";
+    resultsGrid.style.display = "grid";
+
+    //build a card for each project and add it to the grid
+    projects.forEach(function (project) {
+      resultsGrid.appendChild(buildProjectCard(project));
+    });
+
+    resultsSection.scrollIntoView({ behavior: "smooth" });
   }
 
   function truncate(text, maxLength) {
@@ -479,6 +783,32 @@ updateProfileWidgets();
     span.className = "project-tag project-tag--" + normalize(type).replace(/[^a-z0-9_-]/g, "-");
     span.textContent = text;
     return span;
+
+  //takes the array of projects from the api and draws them on the page as cards
+  //if array is empty it shows the "no results" message instead
+  function renderResults(projects, message) {
+    resultsSection.style.display = "block";
+    resultsLoadingEl.style.display = "none";
+    // Clear out any cards from a previous search before showing new ones
+    resultsGrid.innerHTML = "";
+
+    if (!projects || projects.length === 0) {
+      resultsGrid.style.display     = "none";
+      resultsEmptyEl.style.display  = "block";
+      if (message && emptyMessageEl) emptyMessageEl.textContent = message;
+      resultsSection.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    resultsEmptyEl.style.display = "none";
+    resultsGrid.style.display = "grid";
+
+    projects.forEach(function (project) {
+      resultsGrid.appendChild(buildProjectCard(project));
+    });
+
+    resultsSection.scrollIntoView({ behavior: "smooth" });
+ main
   }
 
   function buildProjectCard(project) {
@@ -520,10 +850,27 @@ updateProfileWidgets();
 
     var footer = document.createElement("div");
     footer.className = "project-card-footer";
+
+    var saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "btn-save-project";
+    saveButton.setAttribute("data-save-project-id", project.id);
+    saveButton.setAttribute("aria-pressed", projectIsSaved(project.id) ? "true" : "false");
+    if (projectIsSaved(project.id)) {
+      saveButton.classList.add("saved");
+      saveButton.textContent = "Saved";
+    } else {
+      saveButton.textContent = "Save Project";
+    }
+    saveButton.addEventListener("click", function () {
+      toggleSavedProject(project, saveButton);
+    });
+
     var link = document.createElement("a");
     link.className = "btn-details";
     link.textContent = "View Full Project";
     link.href = "/project/" + project.id;
+    footer.appendChild(saveButton);
     footer.appendChild(link);
 
     card.appendChild(title);
@@ -532,6 +879,8 @@ updateProfileWidgets();
     card.appendChild(footer);
     return card;
   }
+
+  renderSavedProjects();
 
   function renderResults(projects, message) {
     resultsSection.style.display = "block";
@@ -549,6 +898,51 @@ updateProfileWidgets();
     projects.forEach(function (project) { resultsGrid.appendChild(buildProjectCard(project)); });
     resultsSection.scrollIntoView({ behavior: "smooth" });
   }
+
+  function runProjectSearch(query) {
+    if (!query) return;
+    setLoadingState(true);
+    fetch("/api/search?q=" + encodeURIComponent(query))
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error("Search failed. Please try again.");
+          return data;
+        });
+      })
+      .then(function (projects) {
+        setLoadingState(false);
+        recordSearch();
+        var message = projects.length
+          ? null
+          : "No projects matched \"" + query + "\". Try a different keyword.";
+        renderResults(projects, message);
+        var mobileMenu = document.getElementById("nav-mobile-menu");
+        var mobileToggle = document.getElementById("nav-mobile-toggle");
+        if (mobileMenu && mobileMenu.classList.contains("open")) {
+          mobileMenu.classList.remove("open");
+          if (mobileToggle) {
+            mobileToggle.classList.remove("open");
+            mobileToggle.setAttribute("aria-expanded", "false");
+          }
+        }
+      })
+      .catch(function (err) {
+        setLoadingState(false);
+        var general = document.getElementById("form-error-general");
+        if (general) general.textContent = err.message || "Search failed. Please try again.";
+      });
+  }
+
+  function bindSearchForm(form, input) {
+    if (!form || !input) return;
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      runProjectSearch(input.value.trim());
+    });
+  }
+
+  bindSearchForm(document.getElementById("topic-search-form"), document.getElementById("topic-search"));
+  bindSearchForm(document.getElementById("topic-search-form-mobile"), document.getElementById("topic-search-mobile"));
 
   skillsInput.setAttribute("role", "combobox");
   skillsInput.setAttribute("aria-expanded", "false");
@@ -689,16 +1083,33 @@ updateProfileWidgets();
   var errorMsg = document.getElementById("github-modal-error");
 
   function closeGithubModal() {
-    modal.classList.remove("active");
-    githubInput.value = "";
-    errorMsg.textContent = "";
-  }
+  modal.classList.remove("active");
+  githubInput.value = "";
+  errorMsg.textContent = "";
+  openModalBtn.focus(); // add this line
+}
 
   if (modal && openModalBtn && closeModalBtn && fetchBtn && githubInput && errorMsg) {
     openModalBtn.addEventListener("click", function () {
       modal.classList.add("active");
       githubInput.focus();
     });
+    modal.addEventListener("keydown", function (event) {
+  if (!modal.classList.contains("active")) return;
+  var focusable = modal.querySelectorAll("button, input");
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+  if (event.key === "Tab") {
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+  if (event.key === "Escape") closeGithubModal();
+});
     closeModalBtn.addEventListener("click", closeGithubModal);
     modal.addEventListener("click", function (event) {
       if (event.target === modal) closeGithubModal();
@@ -843,6 +1254,30 @@ updateProfileWidgets();
         done();
       }
     });
+  } // end github modal handlers
+
+    /* ---- Scroll-to-top button ---- */
+      
+  var SCROLL_THRESHOLD = 300;
+  var scrollTopBtn = document.getElementById('scroll-top-btn');
+
+  function handleScroll() {
+    if (!scrollTopBtn) return;
+    if (window.pageYOffset > SCROLL_THRESHOLD) {
+      scrollTopBtn.classList.add('visible');
+    } else {
+      scrollTopBtn.classList.remove('visible');
+    }
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  if (scrollTopBtn) {
+    window.addEventListener('scroll', handleScroll);
+    scrollTopBtn.addEventListener('click', scrollToTop);
+  }
   }
 
   var roadmapCheckboxes = Array.prototype.slice.call(document.querySelectorAll(".roadmap-checkbox"));
