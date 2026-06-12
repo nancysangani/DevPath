@@ -16,6 +16,13 @@ from config import Config
 
 app = Flask(__name__)
 
+@app.template_filter('escapejs')
+def escapejs_filter(val):
+    """Safely escape strings for use inside JavaScript."""
+    if val is None:
+        return ''
+    return str(val).replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('</', '<\\/')
+
 # Register all routes defined in the main Blueprint
 app.register_blueprint(main)
 
