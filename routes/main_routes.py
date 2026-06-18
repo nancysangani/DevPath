@@ -150,17 +150,7 @@ def recommend():
             )
         }), 200
 
-    # Ensure all projects have IDs in the response
-    projects_data = []
-    for project in results:
-        project_dict = dict(project)  # Convert to dict if needed
-        # Make sure ID is included
-        if 'id' not in project_dict:
-            project_dict['id'] = project.get('id', 0)
-        projects_data.append(project_dict)
-
-    return jsonify({"projects": projects_data}), 200
-
+    return jsonify({"projects": results}), 200
 @main.route("/api/project/<int:project_id>/resources")
 def project_resources(project_id):
     """Return the validated resource list for a project.
@@ -412,6 +402,10 @@ def update_path(path_id):
 
     return jsonify({"path_id": path_id, "message": "Learning path updated."}), 200
 
+# Constants for learning velocity recommendations
+VELOCITY_SLOW_THRESHOLD = 1.2
+VELOCITY_FAST_THRESHOLD = 0.8
+
 
 @main.route("/api/learning-path/<path_id>/analytics", methods=["GET"])
 def get_path_analytics(path_id):
@@ -470,10 +464,10 @@ def get_path_analytics(path_id):
     predicted_remaining = round(remaining_est * velocity, 1)
     
     # Recommendations based on velocity
-    recommendation = "You're matching the estimates perfectly!"
-    if velocity > 1.2:
+    recommendation = "You're matching the estimates perfectly!" # Default recommendation
+    if velocity > VELOCITY_SLOW_THRESHOLD:
         recommendation = "You're taking more time than estimated. Consider breaking tasks into smaller chunks."
-    elif velocity < 0.8:
+    elif velocity < VELOCITY_FAST_THRESHOLD:
         recommendation = "You're moving fast! You might want to try a higher difficulty level next."
 
     return jsonify({

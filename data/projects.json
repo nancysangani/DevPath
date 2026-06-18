@@ -227,7 +227,6 @@
   },
   {
     "id": 8,
-
     "title": "Library Management System",
     "skills": ["Java"],
     "level": "Beginner",
@@ -289,35 +288,6 @@
     "starter_code": "starter_code/realtime_chat_app.js"
   },
   {
-    "id": 99,
-    "title": "Password Strength Checker",
-    "skills": ["Python"],
-    "level": "Beginner",
-    "interest": "Cybersecurity",
-    "time": "Low",
-    "description": "A tool that checks password strength based on length, symbols, uppercase letters, and numbers. Helps beginners understand input validation and security basics.",
-    "features": [
-      "Check password complexity",
-      "Display strength rating",
-      "Suggest stronger password improvements",
-      "Prevent weak password patterns"
-    ],
-    "tech_stack": ["Python", "Regex"],
-    "roadmap": [
-      "Step 1: Create the password input system",
-      "Step 2: Check password length",
-      "Step 3: Detect uppercase and lowercase letters",
-      "Step 4: Detect numbers and symbols",
-      "Step 5: Create a scoring system",
-      "Step 6: Display password strength feedback"
-    ],
-    "resources": [
-      "Python regex docs: https://docs.python.org/3/library/re.html",
-      "OWASP password guidelines: https://owasp.org"
-    ],
-    "starter_code": "starter_code/password_checker.py"
-  },
-  {
     "id": 10,
     "title": "Feedback Survey Form",
     "skills": ["HTML"],
@@ -342,43 +312,6 @@
       "MDN HTML Forms: https://developer.mozilla.org/en-US/docs/Learn/Forms"
     ],
     "starter_code": "starter_code/survey_form/index.html"
-  },
-  {
-    "id": 98,
-    "title": "API ETL Pipeline",
-    "skills": ["Python", "pandas", "requests"],
-    "level": "Intermediate",
-    "interest": "Data",
-    "time": "Medium",
-    "description": "Enter a public API URL to fetch data and automatically transform it into a structured CSV dataset.",
-    "features": [
-      "Fetch data from public APIs",
-      "handle missing values",
-      "Normalize nested JSON",
-      "Generate summary statistics",
-      "Export the processed CSV for any other Analytics projects"
-    ],
-    "tech_stack": ["Python", "pandas", "requests", "JSON"],
-    "roadmap": [
-      "Step 1: Install required modules via pip",
-      "Step 2: Find a public API key for this project",
-      "Step 3: Fetch the data from the API using requests",
-      "Step 4: Validate the response you just fetched From the API",
-      "Step 5: Normalize the nested JSON data by flattening it",
-      "Step 6: Use the fetched data to build a pandas dataframe",
-      "Step 7: Handle missing values or duplicate values",
-      "Step 8: Export the cleaned dataset to CSV format",
-      "Step 9: Generate a summary for the newly created CSV dataset",
-      "Step 10: Test the file with at least two different public APIs"
-    ],
-    "resources": [
-      "pandas docs: https://pandas.pydata.org/docs",
-      "requests docs: https://requests.readthedocs.io/en/latest/",
-      "JSON handling in Python: https://docs.python.org/3/library/json.html",
-      "REST API tutorial: https://restfulapi.net/",
-      "Real Python API guide: https://realpython.com/api-integration-in-python/"
-    ],
-    "starter_code": "starter_code/api_data_pipeline.py"
   },
   {
     "id": 11,
@@ -588,7 +521,7 @@
     "id": 17,
     "title": "Sunrise Grand Hotel Management System",
     "skills": ["Python"],
-    "level": "Medium",
+    "level": "Intermediate",
     "interest": "Business Logic",
     "time": "Medium",
     "description": "A robust CLI application to manage a 40-room inventory with tiered pricing, guest booking logic, and automatic billing calculation.",
@@ -1009,5 +942,71 @@
       "C++ STL tutorial: https://www.geeksforgeeks.org/the-c-standard-template-library-stl/"
     ],
     "starter_code": null
+  },
+  {
+    "id": 98,
+    "title": "API ETL Pipeline",
+    "skills": ["Python", "pandas", "requests"],
+    "level": "Intermediate",
+    "interest": "Data",
+    "time": "Medium",
+    "description": "Enter a public API URL to fetch data and automatically transform it into a structured CSV dataset.",
+    "features": [
+      "Fetch data from public APIs",
+      "handle missing values",
+      "Normalize nested JSON",
+      "Generate summary statistics",
+      "Export the processed CSV for any other Analytics projects"
+    ],
+    "tech_stack": ["Python", "pandas", "requests", "JSON"],
+    "roadmap": [
+      "Step 1: Install required modules via pip",
+      "Step 2: Find a public API key for this project",
+      "Step 3: Fetch the data from the API using requests",
+      "Step 4: Validate the response you just fetched From the API",
+      "Step 5: Normalize the nested JSON data by flattening it",
+      "Step 6: Use the fetched data to build a pandas dataframe",
+      "Step 7: Handle missing values or duplicate values",
+      "Step 8: Export the cleaned dataset to CSV format",
+      "Step 9: Generate a summary for the newly created CSV dataset",
+      "Step 10: Test the file with at least two different public APIs"
+    ],
+    "resources": [
+      "pandas docs: https://pandas.pydata.org/docs",
+      "requests docs: https://requests.readthedocs.io/en/latest/",
+      "JSON handling in Python: https://docs.python.org/3/library/json.html",
+      "REST API tutorial: https://restfulapi.net/",
+      "Real Python API guide: https://realpython.com/api-integration-in-python/"
+    ],
+    "starter_code": "starter_code/api_data_pipeline.py"
+  },
+  {
+    "id": 99,
+    "title": "Password Strength Checker",
+    "skills": ["Python"],
+    "level": "Beginner",
+    "interest": "Cybersecurity",
+    "time": "Low",
+    "description": "A tool that checks password strength based on length, symbols, uppercase letters, and numbers. Helps beginners understand input validation and security basics.",
+    "features": [
+      "Check password complexity",
+      "Display strength rating",
+      "Suggest stronger password improvements",
+      "Prevent weak password patterns"
+    ],
+    "tech_stack": ["Python", "Regex"],
+    "roadmap": [
+      "Step 1: Create the password input system",
+      "Step 2: Check password length",
+      "Step 3: Detect uppercase and lowercase letters",
+      "Step 4: Detect numbers and symbols",
+      "Step 5: Create a scoring system",
+      "Step 6: Display password strength feedback"
+    ],
+    "resources": [
+      "Python regex docs: https://docs.python.org/3/library/re.html",
+      "OWASP password guidelines: https://owasp.org"
+    ],
+    "starter_code": "starter_code/password_checker.py"
   }
 ]
